@@ -109,5 +109,18 @@ class PriceChangeReason(str, Enum):
     INITIAL_CONFIG = "INITIAL_CONFIG"
 
 
+class RiskLevel(str, Enum):
+    LOW = "LOW"
+    MEDIUM = "MEDIUM"
+    HIGH = "HIGH"
+
+
+class FraudDecision(str, Enum):
+    ALLOW = "ALLOW"
+    REVIEW = "REVIEW"
+    BLOCK = "BLOCK"
+
+
+
 
 

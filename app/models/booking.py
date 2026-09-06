@@ -65,6 +65,12 @@ class Booking(Base):
     refunds = relationship("Refund", back_populates="booking", cascade="all, delete-orphan")
     changes = relationship("BookingChange", back_populates="booking", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="booking", cascade="all, delete-orphan")
+    fraud_evaluations = relationship(
+        "FraudEvaluation",
+        back_populates="booking",
+        cascade="all, delete-orphan",
+        order_by="desc(FraudEvaluation.evaluated_at)",
+    )
 
 
 class BookingItem(Base):

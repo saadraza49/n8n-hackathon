@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Header, Query, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.dependencies.auth import get_current_user
+from app.dependencies.auth import get_current_ops_or_admin, get_current_user
 from app.models.enums import BookingStatus
 from app.models.user import User
 from app.schemas.booking import (
@@ -19,6 +19,11 @@ from app.schemas.refund import (
     CancellationSummaryResponse,
     RefundResponse,
 )
+from app.schemas.fraud import (
+    FraudEvaluationListResponse,
+    FraudEvaluationRequest,
+    FraudEvaluationResponse,
+)
 from app.services.booking_change_service import request_booking_change
 from app.services.booking_service import (
     confirm_booking,
@@ -29,6 +34,11 @@ from app.services.booking_service import (
 from app.services.cancellation_service import (
     cancel_booking_or_items,
     list_booking_refunds,
+)
+from app.services.fraud_service import (
+    evaluate_booking_risk,
+    get_latest_fraud_evaluation,
+    list_fraud_evaluations,
 )
 
 router = APIRouter(prefix="/bookings", tags=["Bookings"])
@@ -176,3 +186,61 @@ def list_bookings(
         status_filter=status,
     )
     return BookingListResponse(items=items, pagination=pagination)
+
+
+@router.post(
+    "/{booking_id}/fraud-evaluation",
+    response_model=FraudEvaluationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Evaluate Booking Fraud & Risk",
+    description="Run deterministic risk analysis on a booking and persist auditable evaluation. Restricted to ops and admin.",
+)
+def evaluate_booking_fraud(
+    booking_id: UUID,
+    payload: Optional[FraudEvaluationRequest] = None,
+    idempotency_key_header: Optional[str] = Header(None, alias="Idempotency-Key"),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_ops_or_admin),
+):
+    source = payload.source if payload else None
+    force_re_evaluate = payload.force_re_evaluate if payload else False
+    idempotency_key = (payload.idempotency_key if payload else None) or idempotency_key_header
+    return evaluate_booking_risk(
+        db=db,
+        booking_id=booking_id,
+        current_user=current_user,
+        source=source,
+        force_re_evaluate=force_re_evaluate,
+        idempotency_key=idempotency_key,
+    )
+
+
+@router.get(
+    "/{booking_id}/fraud-evaluations",
+    response_model=FraudEvaluationListResponse,
+    status_code=status.HTTP_200_OK,
+    summary="List Booking Fraud Evaluations",
+    description="Retrieve complete chronological history of fraud evaluations for a booking. Restricted to ops and admin.",
+)
+def list_booking_fraud_evaluations(
+    booking_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_ops_or_admin),
+):
+    return list_fraud_evaluations(db=db, booking_id=booking_id)
+
+
+@router.get(
+    "/{booking_id}/fraud-evaluation/latest",
+    response_model=FraudEvaluationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Get Latest Booking Fraud Evaluation",
+    description="Retrieve most recent fraud evaluation for a booking. Restricted to ops and admin.",
+)
+def get_booking_latest_fraud_evaluation(
+    booking_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_ops_or_admin),
+):
+    return get_latest_fraud_evaluation(db=db, booking_id=booking_id)
+

@@ -366,3 +366,74 @@ The project is pre-configured for instant deployment on [Railway](https://railwa
    - In your Railway service settings, click **Generate Domain** under **Networking**.
    - You will receive a public HTTPS URL (e.g., `https://your-service.up.railway.app`).
    - Use this URL inside your n8n workflows!
+
+---
+
+## 11. Phase 7A — Fraud, Risk & Policy-Control Infrastructure
+
+### Overview
+Phase 7A introduces a deterministic, explainable, and auditable risk scoring engine that evaluates bookings and passengers against operational signals stored in PostgreSQL. It is fully integrated with RBAC, audit logging, idempotency replay, and concurrency locks.
+
+### Database Table: `fraud_evaluations`
+| Column | Type | Constraints / Description |
+| :--- | :--- | :--- |
+| `id` | `UUID` | Primary Key, default `uuid.uuid4` |
+| `booking_id` | `UUID` | Foreign Key (`bookings.id`), Indexed |
+| `user_id` | `UUID` | Foreign Key (`users.id`), Indexed |
+| `risk_score` | `INTEGER` | Check Constraint: `0 <= risk_score <= 100` |
+| `risk_level` | `VARCHAR/ENUM` | `LOW`, `MEDIUM`, `HIGH` |
+| `decision` | `VARCHAR/ENUM` | `ALLOW`, `REVIEW`, `BLOCK` |
+| `reasons` | `JSONB` | Structured array of `FraudSignal` objects and executive summary |
+| `evaluator` | `VARCHAR(100)` | Evaluator version identifier (`RULE_ENGINE_V1` or custom source) |
+| `idempotency_key` | `VARCHAR(255)` | Unique client/n8n replay token, Indexed |
+| `evaluated_at` | `TIMESTAMP WITH TIME ZONE` | Evaluation execution time |
+| `created_at` / `updated_at` | `TIMESTAMP WITH TIME ZONE` | Row tracking |
+
+### Deterministic Risk Signals
+1. **`LAST_MINUTE_DEPARTURE`**:
+   - Booking created < 6h prior to departure: **+25 pts**
+   - Booking created < 24h prior to departure: **+15 pts**
+2. **`HIGH_TRANSACTION_VALUE`**:
+   - Booking total >= $5,000: **+35 pts**
+   - Booking total >= $3,000: **+25 pts**
+3. **`RAPID_BOOKING_VELOCITY`**:
+   - Same user created >= 3 other bookings in the past 24 hours: **+25 pts**
+4. **`FREQUENT_REFUND_ACTIVITY`**:
+   - User has >= 2 prior completed refunds or refund ratio >= 50%: **+20 pts**
+5. **`NEW_ACCOUNT_HIGH_EXPOSURE`**:
+   - User account is < 24 hours old with booking total >= $1,000: **+20 pts**
+6. **`LARGE_PARTY_SIZE`**:
+   - Single reservation containing >= 4 passengers: **+15 pts**
+7. **`DUPLICATE_PASSENGER_NAMES`**:
+   - Identical passenger names across multiple seats in the same booking: **+30 pts**
+8. **`FREQUENT_BOOKING_CHANGES`**:
+   - Booking has undergone >= 2 seat/flight/fare modifications: **+15 pts**
+
+### Decision & Threshold Logic
+- **0 - 29 (LOW):** Recommended Decision: **`ALLOW`** (auto-cleared)
+- **30 - 69 (MEDIUM):** Recommended Decision: **`REVIEW`** (queued for human approval / Phase 8)
+- **70 - 100 (HIGH):** Recommended Decision: **`BLOCK`** (auto-flagged or ticket issuance withheld)
+
+### API Endpoints
+- `POST /bookings/{booking_id}/fraud-evaluation`: Run or replay evaluation for a booking.
+- `GET /bookings/{booking_id}/fraud-evaluations`: Chronological audit history of evaluations for a booking.
+- `GET /bookings/{booking_id}/fraud-evaluation/latest`: Most recent evaluation for a booking.
+- `GET /fraud/evaluations`: Paginated operational queue with database filters (`risk_level`, `decision`, `from_date`, `to_date`, `booking_id`, `user_id`).
+- `GET /fraud/evaluations/{evaluation_id}`: Detailed evaluation inspect endpoint with all signals.
+- `POST /fraud/evaluate`: Payload-based evaluation endpoint for n8n or AI agents.
+
+### n8n Integration Contract
+n8n workflows can poll `GET /fraud/evaluations?decision=REVIEW` or trigger `POST /fraud/evaluate` with an `Idempotency-Key` header:
+```json
+{
+  "booking_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "source": "N8N_FRAUD_SCANNER",
+  "force_re_evaluate": false,
+  "idempotency_key": "n8n_run_12345"
+}
+```
+n8n can route immediately based on `data.decision`:
+- `ALLOW` -> Proceed with automated ticket issuance.
+- `REVIEW` -> Trigger human Slack/Email alert or create Phase 8 approval request.
+- `BLOCK` -> Withhold seat assignment and alert security.
+
