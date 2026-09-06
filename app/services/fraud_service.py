@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.audit_log import AuditLog
 from app.models.booking import Booking, BookingChange, Refund
 from app.models.enums import FraudDecision, RefundStatus, RiskLevel
-from app.models.fraud import FraudEvaluation
+from app.models.fraud import FraudEvaluation, RiskSignalRecord
 from app.models.user import User
 from app.schemas.fraud import (
     FraudEvaluationListResponse,
@@ -19,6 +19,7 @@ from app.schemas.fraud import (
     FraudReasonDetails,
     FraudSignal,
     PaginatedFraudEvaluationResponse,
+    RiskSignalResponse,
 )
 
 EVALUATOR_VERSION = "RULE_ENGINE_V1"
@@ -146,6 +147,7 @@ def evaluate_booking_risk(
                 FraudSignal(
                     code="LAST_MINUTE_DEPARTURE",
                     weight=25,
+                    severity="HIGH",
                     observed_value=f"{hours_to_dep} hours",
                     threshold="< 6.0 hours",
                     description=f"Booking created within 6 hours of departure ({hours_to_dep}h prior)",
@@ -157,6 +159,7 @@ def evaluate_booking_risk(
                 FraudSignal(
                     code="LAST_MINUTE_DEPARTURE",
                     weight=15,
+                    severity="MEDIUM",
                     observed_value=f"{hours_to_dep} hours",
                     threshold="< 24.0 hours",
                     description=f"Booking created within 24 hours of departure ({hours_to_dep}h prior)",
@@ -171,6 +174,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="HIGH_TRANSACTION_VALUE",
                 weight=35,
+                severity="CRITICAL",
                 observed_value=f"{total_val} {booking.currency}",
                 threshold=">= 5000.00",
                 description=f"Very high transaction exposure of {total_val} {booking.currency} (>= 5000)",
@@ -182,6 +186,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="HIGH_TRANSACTION_VALUE",
                 weight=25,
+                severity="HIGH",
                 observed_value=f"{total_val} {booking.currency}",
                 threshold=">= 3000.00",
                 description=f"High transaction exposure of {total_val} {booking.currency} (>= 3000)",
@@ -207,6 +212,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="RAPID_BOOKING_VELOCITY",
                 weight=25,
+                severity="HIGH",
                 observed_value=f"{recent_bookings_count} bookings in 24h",
                 threshold=">= 3 bookings in 24h",
                 description=f"User created {recent_bookings_count} other bookings within 24 hours",
@@ -234,6 +240,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="FREQUENT_REFUND_ACTIVITY",
                 weight=20,
+                severity="HIGH",
                 observed_value=f"{user_refunds_count} refunds",
                 threshold=">= 2 completed refunds",
                 description=f"User has {user_refunds_count} prior completed/approved refunds",
@@ -245,6 +252,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="FREQUENT_REFUND_ACTIVITY",
                 weight=20,
+                severity="HIGH",
                 observed_value=f"{user_refunds_count}/{user_total_bookings} bookings refunded",
                 threshold=">= 50% refund ratio",
                 description=f"User has elevated refund ratio ({user_refunds_count}/{user_total_bookings})",
@@ -262,6 +270,7 @@ def evaluate_booking_risk(
                 FraudSignal(
                     code="NEW_ACCOUNT_HIGH_EXPOSURE",
                     weight=20,
+                    severity="HIGH",
                     observed_value=f"{hours_old}h old, {total_val} {booking.currency}",
                     threshold="< 24h old and >= 1000.00",
                     description=f"New user account ({hours_old}h old) with booking total {total_val} {booking.currency}",
@@ -276,6 +285,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="LARGE_PARTY_SIZE",
                 weight=15,
+                severity="MEDIUM",
                 observed_value=f"{passenger_count} passengers",
                 threshold=">= 4 passengers",
                 description=f"Large group booking with {passenger_count} passengers",
@@ -290,6 +300,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="DUPLICATE_PASSENGER_NAMES",
                 weight=30,
+                severity="CRITICAL",
                 observed_value=f"{len(passenger_names)} names, {len(set(passenger_names))} unique",
                 threshold="repeated names present",
                 description="Duplicate passenger names detected across seats in booking",
@@ -304,6 +315,7 @@ def evaluate_booking_risk(
             FraudSignal(
                 code="FREQUENT_BOOKING_CHANGES",
                 weight=15,
+                severity="MEDIUM",
                 observed_value=f"{changes_count} changes",
                 threshold=">= 2 booking changes",
                 description=f"Booking has undergone {changes_count} prior modifications",
@@ -315,19 +327,27 @@ def evaluate_booking_risk(
     raw_score = sum(s.weight for s in signals)
     risk_score = min(100, max(0, raw_score))
 
-    # Map score to risk level and decision
+    # Map score to risk level and decision based on production thresholds:
+    # 0-29: LOW -> ALLOW
+    # 30-59: MEDIUM -> REVIEW
+    # 60-79: HIGH -> REVIEW
+    # 80-100: CRITICAL -> BLOCK
     if risk_score < 30:
         risk_level = RiskLevel.LOW
         decision = FraudDecision.ALLOW
         summary = f"Low risk evaluation (score: {risk_score}/100). No significant fraud indicators detected. Recommended decision: ALLOW."
-    elif risk_score < 70:
+    elif risk_score < 60:
         risk_level = RiskLevel.MEDIUM
         decision = FraudDecision.REVIEW
         summary = f"Medium risk evaluation (score: {risk_score}/100). Triggered {len(signals)} risk signal(s). Recommended decision: REVIEW."
-    else:
+    elif risk_score < 80:
         risk_level = RiskLevel.HIGH
+        decision = FraudDecision.REVIEW
+        summary = f"High risk evaluation (score: {risk_score}/100). Multiple elevated risk indicators detected. Recommended decision: REVIEW."
+    else:
+        risk_level = RiskLevel.CRITICAL
         decision = FraudDecision.BLOCK
-        summary = f"High risk evaluation (score: {risk_score}/100). Severe risk indicators detected. Recommended decision: BLOCK."
+        summary = f"Critical risk evaluation (score: {risk_score}/100). Severe compounded fraud indicators detected. Recommended decision: BLOCK."
 
     evaluator_name = source or EVALUATOR_VERSION
 
@@ -346,6 +366,19 @@ def evaluate_booking_risk(
     )
     db.add(evaluation_record)
     db.flush()
+
+    # Persist child signals in risk_signals table
+    for s in signals:
+        sig_rec = RiskSignalRecord(
+            evaluation_id=evaluation_record.id,
+            signal_code=s.code,
+            severity=s.severity,
+            score_contribution=s.weight,
+            description=s.description,
+            evidence=s.metadata or {},
+            signal_metadata={"observed_value": s.observed_value, "threshold": s.threshold},
+        )
+        db.add(sig_rec)
 
     # Record in audit log
     audit_actor_id = current_user.id if current_user else booking.user_id
@@ -435,6 +468,38 @@ def get_fraud_evaluation_by_id(db: Session, evaluation_id: UUID) -> FraudEvaluat
             detail=f"Fraud evaluation with ID '{evaluation_id}' not found",
         )
     return _format_evaluation_response(evaluation)
+
+
+def get_risk_signals_for_evaluation(db: Session, evaluation_id: UUID) -> List[RiskSignalResponse]:
+    """Retrieve the child risk signal records for an evaluation."""
+    eval_exists = db.query(FraudEvaluation.id).filter(FraudEvaluation.id == evaluation_id).first()
+    if not eval_exists:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Fraud evaluation with ID '{evaluation_id}' not found",
+        )
+
+    signals = (
+        db.query(RiskSignalRecord)
+        .filter(RiskSignalRecord.evaluation_id == evaluation_id)
+        .order_by(desc(RiskSignalRecord.score_contribution))
+        .all()
+    )
+
+    return [
+        RiskSignalResponse(
+            id=s.id,
+            evaluation_id=s.evaluation_id,
+            signal_code=s.signal_code,
+            severity=s.severity,
+            score_contribution=s.score_contribution,
+            description=s.description,
+            evidence=s.evidence,
+            metadata=s.signal_metadata,
+            created_at=s.created_at,
+        )
+        for s in signals
+    ]
 
 
 def list_all_fraud_evaluations(

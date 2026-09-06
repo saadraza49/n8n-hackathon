@@ -113,6 +113,7 @@ class RiskLevel(str, Enum):
     LOW = "LOW"
     MEDIUM = "MEDIUM"
     HIGH = "HIGH"
+    CRITICAL = "CRITICAL"
 
 
 class FraudDecision(str, Enum):

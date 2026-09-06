@@ -27,8 +27,7 @@ from app.models.audit_log import AuditLog
 from app.models.booking import Booking, BookingChange, BookingItem, Refund
 from app.models.waitlist import WaitlistEntry
 from app.models.notification import Notification
-from app.models.price_history import PriceHistory
-from app.models.fraud import FraudEvaluation
+from app.models.fraud import FraudEvaluation, RiskSignalRecord
 
 __all__ = [
     "UserRole",
@@ -63,6 +62,7 @@ __all__ = [
     "Notification",
     "PriceHistory",
     "FraudEvaluation",
+    "RiskSignalRecord",
 ]
 
 

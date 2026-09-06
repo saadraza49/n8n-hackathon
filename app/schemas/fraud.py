@@ -10,10 +10,26 @@ from app.models.enums import FraudDecision, RiskLevel
 class FraudSignal(BaseModel):
     code: str = Field(..., description="Machine-readable signal code")
     weight: int = Field(..., description="Weight / risk points contributed by this signal")
+    severity: str = Field("MEDIUM", description="Severity level: LOW, MEDIUM, HIGH, CRITICAL")
     description: str = Field(..., description="Human-readable explanation of why this signal fired")
     observed_value: Optional[str] = Field(None, description="Observed metric value (e.g. '5200.00 USD')")
     threshold: Optional[str] = Field(None, description="Configured rule threshold (e.g. '>= 5000.00 USD')")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Structured signal context")
+    evidence: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Structured evidence context")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Structured signal metadata")
+
+
+class RiskSignalResponse(BaseModel):
+    id: UUID
+    evaluation_id: UUID
+    signal_code: str
+    severity: str
+    score_contribution: int
+    description: str
+    evidence: Optional[Dict[str, Any]] = None
+    metadata: Optional[Dict[str, Any]] = None
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FraudReasonDetails(BaseModel):
@@ -22,7 +38,7 @@ class FraudReasonDetails(BaseModel):
 
 
 class FraudEvaluationRequest(BaseModel):
-    booking_id: Optional[UUID] = Field(None, description="Booking ID to evaluate (if calling standalone /fraud/evaluate endpoint)")
+    booking_id: Optional[UUID] = Field(None, description="Booking ID to evaluate (if calling standalone /fraud/evaluate or /risk/evaluate)")
     source: Optional[str] = Field(None, max_length=100, description="Evaluator, agent, or workflow calling this check")
     force_re_evaluate: bool = Field(
         False,

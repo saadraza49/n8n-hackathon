@@ -26,7 +26,7 @@ def upgrade() -> None:
     # 1. Create Enums if Postgres
     if is_postgres:
         postgresql.ENUM(
-            "LOW", "MEDIUM", "HIGH",
+            "LOW", "MEDIUM", "HIGH", "CRITICAL",
             name="risk_level",
         ).create(bind, checkfirst=True)
         postgresql.ENUM(
@@ -39,7 +39,7 @@ def upgrade() -> None:
             return postgresql.ENUM(*values, name=name, create_type=False)
         return sa.Enum(*values, name=name, native_enum=False)
 
-    risk_level_col = enum_col(["LOW", "MEDIUM", "HIGH"], "risk_level")
+    risk_level_col = enum_col(["LOW", "MEDIUM", "HIGH", "CRITICAL"], "risk_level")
     fraud_decision_col = enum_col(["ALLOW", "REVIEW", "BLOCK"], "fraud_decision")
     reasons_col = postgresql.JSONB(astext_type=sa.Text()) if is_postgres else sa.JSON()
 
@@ -69,8 +69,26 @@ def upgrade() -> None:
     op.create_index("ix_fraud_evaluations_decision", "fraud_evaluations", ["decision"])
     op.create_index("ix_fraud_evaluations_booking_evaluated", "fraud_evaluations", ["booking_id", "evaluated_at"])
 
+    # 3. Create risk_signals child table
+    op.create_table(
+        "risk_signals",
+        sa.Column("id", sa.Uuid(as_uuid=True), primary_key=True),
+        sa.Column("evaluation_id", sa.Uuid(as_uuid=True), sa.ForeignKey("fraud_evaluations.id", ondelete="CASCADE"), nullable=False),
+        sa.Column("signal_code", sa.String(100), nullable=False),
+        sa.Column("severity", sa.String(50), nullable=False),
+        sa.Column("score_contribution", sa.Integer(), nullable=False),
+        sa.Column("description", sa.String(500), nullable=False),
+        sa.Column("evidence", reasons_col, nullable=True),
+        sa.Column("metadata", reasons_col, nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False),
+    )
+
+    op.create_index("ix_risk_signals_evaluation_id", "risk_signals", ["evaluation_id"])
+    op.create_index("ix_risk_signals_signal_code", "risk_signals", ["signal_code"])
+
     if is_postgres:
         op.execute("ALTER TABLE fraud_evaluations ENABLE ROW LEVEL SECURITY;")
+        op.execute("ALTER TABLE risk_signals ENABLE ROW LEVEL SECURITY;")
 
 
 def downgrade() -> None:

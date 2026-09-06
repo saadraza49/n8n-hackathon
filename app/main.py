@@ -6,7 +6,7 @@ from app.routers.flights import router as flights_router
 from app.routers.bookings import router as bookings_router
 from app.routers.waitlists import router as waitlists_router
 from app.routers.automation import router as automation_router
-from app.routers.fraud import router as fraud_router
+from app.routers.fraud import risk_router, router as fraud_router
 
 app = FastAPI(
     title="Flight Management System API",
@@ -32,6 +32,7 @@ app.include_router(bookings_router)
 app.include_router(waitlists_router)
 app.include_router(automation_router)
 app.include_router(fraud_router)
+app.include_router(risk_router)
 
 
 
