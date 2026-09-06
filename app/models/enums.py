@@ -122,6 +122,29 @@ class FraudDecision(str, Enum):
     BLOCK = "BLOCK"
 
 
+class PolicyType(str, Enum):
+    CANCELLATION = "CANCELLATION"
+    REFUND = "REFUND"
+    REBOOKING = "REBOOKING"
+    FARE = "FARE"
+    SEAT_HOLD = "SEAT_HOLD"
+    WAITLIST = "WAITLIST"
+    SCHEDULE_CHANGE = "SCHEDULE_CHANGE"
+    FLIGHT_CANCELLATION = "FLIGHT_CANCELLATION"
+    CHECK_IN = "CHECK_IN"
+    GENERAL = "GENERAL"
 
 
+class PolicyDocumentStatus(str, Enum):
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+    SUPERSEDED = "SUPERSEDED"
+    ARCHIVED = "ARCHIVED"
 
+
+class PolicyIngestionStatus(str, Enum):
+    PENDING = "PENDING"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    FAILED = "FAILED"
+    SKIPPED = "SKIPPED"

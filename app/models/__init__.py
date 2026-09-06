@@ -13,6 +13,9 @@ from app.models.enums import (
     RefundType,
     RiskLevel,
     FraudDecision,
+    PolicyType,
+    PolicyDocumentStatus,
+    PolicyIngestionStatus,
     SeatStatus,
     UserRole,
     WaitlistEntryType,
@@ -28,6 +31,7 @@ from app.models.booking import Booking, BookingChange, BookingItem, Refund
 from app.models.waitlist import WaitlistEntry
 from app.models.notification import Notification
 from app.models.fraud import FraudEvaluation, RiskSignalRecord
+from app.models.policy import PolicyDocument
 
 __all__ = [
     "UserRole",
@@ -48,6 +52,9 @@ __all__ = [
     "PriceChangeReason",
     "RiskLevel",
     "FraudDecision",
+    "PolicyType",
+    "PolicyDocumentStatus",
+    "PolicyIngestionStatus",
     "User",
     "Flight",
     "FlightClass",
@@ -63,6 +70,7 @@ __all__ = [
     "PriceHistory",
     "FraudEvaluation",
     "RiskSignalRecord",
+    "PolicyDocument",
 ]
 
 

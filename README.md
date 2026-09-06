@@ -437,3 +437,76 @@ n8n can route immediately based on `data.decision`:
 - `REVIEW` -> Trigger human Slack/Email alert or create Phase 8 approval request.
 - `BLOCK` -> Withhold seat assignment and alert security.
 
+---
+
+## 12. Phase 7B: Policy Knowledge Base & RAG-Ready Backend Infrastructure
+
+Phase 7B delivers a production-grade, source-agnostic policy knowledge-base registry in PostgreSQL and an Authoritative Booking RAG Context engine for n8n AI policy assistants.
+
+### Architectural Principles
+- **FastAPI**: Authoritative source of truth for live booking facts and purchased fare-rule snapshots. Exposes the policy document registry, content hash change detection, and booking RAG context.
+- **n8n**: Orchestrates scheduled policy ingestion, text extraction, chunking, Cohere embeddings, Pinecone vector upsert, policy retrieval, and human approval before Gmail dispatch.
+- **Pinecone**: Vector database storing embeddings and document chunk metadata.
+- **Fare Rule Authority**: Historical bookings preserve an immutable `fare_rule_snapshot` on `booking_items` taken at purchase time. Even if live fare rules are modified, the customer's purchased refundability, cutoff deadlines, and terms remain historically intact.
+
+### Database Tables & Columns (`policy_documents`)
+| Column | Type | Description |
+|---|---|---|
+| `id` | `UUID` | Primary Key, default `uuid.uuid4` |
+| `document_name` | `VARCHAR(255)` | Unique or canonical document name (e.g. `cancellation_rules.md`) |
+| `policy_type` | `ENUM` | `CANCELLATION`, `REFUND`, `REBOOKING`, `FARE`, `SEAT_HOLD`, `WAITLIST`, `SCHEDULE_CHANGE`, `FLIGHT_CANCELLATION`, `CHECK_IN`, `GENERAL` |
+| `version` | `VARCHAR(50)` | Version string (e.g. `1.0`, `2026.1`) |
+| `source` | `VARCHAR(255)` | Origin document/manual (e.g. `Conditions of Carriage`) |
+| `source_url` | `VARCHAR(1024)` | Optional URL/storage URI to source document |
+| `document_hash` | `VARCHAR(64)` | SHA-256 hex checksum of raw content |
+| `status` | `ENUM` | `ACTIVE`, `INACTIVE`, `SUPERSEDED`, `ARCHIVED` |
+| `ingestion_status` | `ENUM` | `PENDING`, `PROCESSING`, `COMPLETED`, `FAILED`, `SKIPPED` |
+| `effective_from` | `TIMESTAMPTZ` | When document becomes effective |
+| `effective_until` | `TIMESTAMPTZ` | Optional expiration date |
+| `content_length` | `INTEGER` | Raw content byte length |
+| `chunk_count` | `INTEGER` | Number of chunks generated in Pinecone |
+| `metadata_info` | `JSONB` | Extensible metadata (namespace, chunking parameters) |
+| `retrieved_at` | `TIMESTAMPTZ` | Timestamp when n8n completed ingestion |
+| `created_by` | `UUID` | Foreign Key (`users.id`) |
+| `created_at` / `updated_at` | `TIMESTAMPTZ` | Lifecycle audit timestamps |
+
+### `BookingItem.fare_rule_snapshot`
+When a seat hold is created, the system locks in the authoritative fare rule:
+```json
+{
+  "fare_rule_id": "9b1deb4d-3b7d-4bad-9bdd-2b0d7b3dcb6d",
+  "flight_id": "8a7d03fb-4c13-494a-91be-d82f01e3111a",
+  "class_type": "ECONOMY",
+  "fare_type": "FLEXIBLE",
+  "price": "250.00",
+  "currency": "USD",
+  "refundable": true,
+  "credit_only": false,
+  "changes_allowed": true,
+  "seat_selection_allowed": true,
+  "cancellation_cutoff_minutes": 120,
+  "snapshotted_at": "2026-09-06T08:00:00Z"
+}
+```
+
+### API Endpoints
+- `POST /policy/documents`: Register document metadata. Computes SHA-256, auto-supersedes older active versions.
+- `GET /policy/documents`: Paginated list of registered policy documents with status and type filters.
+- `GET /policy/documents/{id}`: Detailed metadata for a specific document.
+- `PATCH /policy/documents/{id}`: Update status or ingestion state (e.g. n8n setting `COMPLETED`).
+- `POST /policy/documents/detect-changes`: Batch change detection via SHA-256 comparison (`NEW_DOCUMENT`, `UNCHANGED`, `CONTENT_CHANGED`, `SUPERSEDED`).
+- `GET /rag/bookings/{booking_id}/context`: Authoritative booking RAG context for n8n policy agents.
+- `GET /policy/context/booking/{booking_id}`: Alias for booking RAG context.
+
+### Pinecone Chunk Metadata Contract
+n8n attaches the following metadata schema to each Pinecone vector:
+- `document_id`: UUID string from `policy_documents`
+- `document_name`: String (e.g. `conditions_of_carriage.md`)
+- `policy_type`: String (e.g. `CANCELLATION`, `REFUND`)
+- `version`: String (e.g. `1.0`)
+- `source`: String (e.g. `Operations Manual`)
+- `source_url`: String (URL/path)
+- `effective_from`: ISO-8601 string
+- `effective_until`: Optional ISO-8601 string
+- `chunk_id`: String (e.g. `doc_123_chunk_001`)
+- `content_hash`: SHA-256 hex string

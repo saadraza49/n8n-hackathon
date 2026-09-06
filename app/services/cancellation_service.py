@@ -181,19 +181,26 @@ def cancel_booking_or_items(
                 detail=f"A refund has already been recorded for item '{item.id}'",
             )
 
-        # Lookup authoritative fare rule
-        fare_rule = (
-            db.query(FareRule)
-            .filter(
-                FareRule.flight_id == booking.flight_id,
-                FareRule.class_type == item.class_type,
-                FareRule.fare_type == item.fare_type,
+        # Lookup authoritative fare rule snapshot (prefer immutable snapshot saved at purchase time)
+        if item.fare_rule_snapshot and isinstance(item.fare_rule_snapshot, dict):
+            cancellation_cutoff = int(item.fare_rule_snapshot.get("cancellation_cutoff_minutes", 0))
+            is_refundable = bool(item.fare_rule_snapshot.get("refundable", False))
+            is_credit_only = bool(item.fare_rule_snapshot.get("credit_only", False))
+        else:
+            fare_rule = (
+                db.query(FareRule)
+                .filter(
+                    FareRule.flight_id == booking.flight_id,
+                    FareRule.class_type == item.class_type,
+                    FareRule.fare_type == item.fare_type,
+                )
+                .first()
             )
-            .first()
-        )
+            cancellation_cutoff = fare_rule.cancellation_cutoff_minutes if fare_rule else 0
+            is_refundable = fare_rule.refundable if fare_rule else False
+            is_credit_only = fare_rule.credit_only if fare_rule else False
 
         # Cancellation Cutoff Evaluation
-        cancellation_cutoff = fare_rule.cancellation_cutoff_minutes if fare_rule else 0
         cutoff_deadline = _ensure_utc(flight.departure_at) - timedelta(minutes=cancellation_cutoff)
         is_before_cutoff = now_utc <= cutoff_deadline
 
@@ -206,11 +213,11 @@ def cancel_booking_or_items(
             refund_type = RefundType.NONE
             refund_amount = Decimal("0.00")
             notes = f"Cancellation request after deadline ({cutoff_deadline.isoformat()})"
-        elif fare_rule and fare_rule.refundable:
+        elif is_refundable:
             refund_type = RefundType.MONETARY
             refund_amount = item.price
             notes = "Eligible for monetary refund per fare rules"
-        elif fare_rule and fare_rule.credit_only:
+        elif is_credit_only:
             refund_type = RefundType.CREDIT
             refund_amount = item.price
             notes = "Eligible for credit-only refund per fare rules"

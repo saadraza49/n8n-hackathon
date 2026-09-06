@@ -374,6 +374,20 @@ def create_hold(
     db.flush()  # populate booking.id
 
     for item, fare_rule, seat, _ in allocated_seats:
+        snapshot_dict = {
+            "fare_rule_id": str(fare_rule.id),
+            "flight_id": str(fare_rule.flight_id),
+            "class_type": fare_rule.class_type.value,
+            "fare_type": fare_rule.fare_type.value,
+            "price": str(fare_rule.price),
+            "currency": fare_rule.currency,
+            "refundable": fare_rule.refundable,
+            "credit_only": fare_rule.credit_only,
+            "changes_allowed": fare_rule.changes_allowed,
+            "seat_selection_allowed": fare_rule.seat_selection_allowed,
+            "cancellation_cutoff_minutes": fare_rule.cancellation_cutoff_minutes,
+            "snapshotted_at": now_utc.isoformat(),
+        }
         booking_item = BookingItem(
             booking_id=booking.id,
             flight_id=payload.flight_id,
@@ -383,6 +397,7 @@ def create_hold(
             passenger_name=item.passenger_name or current_user.name,
             price=fare_rule.price,
             currency=fare_rule.currency,
+            fare_rule_snapshot=snapshot_dict,
         )
         db.add(booking_item)
 

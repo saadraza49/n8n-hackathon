@@ -5,6 +5,7 @@ from sqlalchemy import (
     DateTime,
     Enum as SAEnum,
     ForeignKey,
+    JSON,
     Numeric,
     String,
     Text,
@@ -102,6 +103,7 @@ class BookingItem(Base):
     passenger_name = Column(String(255), nullable=False)
     price = Column(Numeric(10, 2), nullable=False)
     currency = Column(String(3), nullable=False, default="USD")
+    fare_rule_snapshot = Column(JSON, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     # Relationships
