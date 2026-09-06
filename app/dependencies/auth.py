@@ -7,7 +7,9 @@ from sqlalchemy.orm import Session
 
 from app.core.security import decode_access_token
 from app.database import get_db
+from app.models.enums import UserRole
 from app.models.user import User
+
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -51,3 +53,22 @@ def get_current_user(
         raise credentials_exception
 
     return user
+
+
+def require_roles(*allowed_roles: UserRole):
+    """Factory dependency enforcing Role-Based Access Control (RBAC)."""
+    def role_checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Operation not permitted. Required role: {', '.join(r.value for r in allowed_roles)}",
+            )
+        return current_user
+
+    return role_checker
+
+
+# Role dependencies for operational and administrative endpoints
+get_current_ops_or_admin = require_roles(UserRole.OPS_AGENT, UserRole.SUPER_ADMIN)
+get_current_super_admin = require_roles(UserRole.SUPER_ADMIN)
+

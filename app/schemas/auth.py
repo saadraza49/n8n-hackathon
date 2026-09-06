@@ -3,6 +3,9 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
+from app.models.enums import UserRole
+
+
 class UserCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, examples=["John Doe"])
     email: EmailStr = Field(..., examples=["john@example.com"])
@@ -18,10 +21,12 @@ class UserResponse(BaseModel):
     id: UUID
     name: str
     email: EmailStr
+    role: UserRole = UserRole.PASSENGER
     created_at: datetime
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
 
 
 class TokenResponse(BaseModel):

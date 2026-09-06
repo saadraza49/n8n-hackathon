@@ -11,7 +11,8 @@ sys.path.append(str(BASE_DIR))
 
 from app.core.config import settings
 from app.database import Base
-from app.models.user import User  # noqa: F401
+import app.models  # noqa: F401
+
 
 # Alembic Config object
 config = context.config
